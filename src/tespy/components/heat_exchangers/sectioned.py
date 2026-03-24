@@ -19,6 +19,7 @@ from tespy.components.component import component_registry
 from tespy.components.heat_exchangers.base import HeatExchanger
 from tespy.tools.data_containers import ComponentProperties as dc_cp
 from tespy.tools.data_containers import GroupedComponentProperties as dc_gcp
+from tespy.tools.data_containers import GroupedComponentCharacteristics as dc_gcc
 from tespy.tools.data_containers import SimpleDataContainer as dc_simple
 from tespy.tools.fluid_properties import T_mix_ph
 from tespy.tools.fluid_properties import h_mix_pQ
@@ -332,6 +333,13 @@ class SectionedHeatExchanger(HeatExchanger):
                 quantity="heat_transfer_coefficient",
                 description="sum of UA values of all sections of heat exchanger"
             ),
+            'UA_char': dc_gcc(
+                    elements=['kA_char1', 'kA_char2'],
+                    num_eq_sets=1,
+                    func=self.UA_char_func,
+                    dependents=self.UA_dependents,
+                    description="equation for sectioned UA modification based on characteristic lines"
+         ),
             'refrigerant_index': dc_simple(
                 val=0,
                 description="side on which the refrigerant is flowing (0: hot, 1:cold)"
@@ -703,6 +711,33 @@ class SectionedHeatExchanger(HeatExchanger):
         """
         sections = self.calc_sections(False)
         return self.UA.val_SI - self.calc_UA(sections)
+    
+    def UA_char_func(self):
+        r"""
+        Calculate offdesign UA from characteristic lines analogous to TESPy's
+        basic heat exchanger kA_char_func, but for the sectioned heat exchanger.
+
+        Returns
+        -------
+        float
+        Residual value of equation:
+
+        0 = UA_design * fUA - sum(UA_i)"""
+    
+        p1 = self.kA_char1.param
+        p2 = self.kA_char2.param
+
+        f1 = self.get_char_expr(p1, **self.kA_char1.char_params)
+        f2 = self.get_char_expr(p2, **self.kA_char2.char_params)
+
+        fUA1 = self.kA_char1.char_func.evaluate(f1)
+        fUA2 = self.kA_char2.char_func.evaluate(f2)
+
+        fUA = 2 / (1 / fUA1 + 1 / fUA2)
+
+        sections = self.calc_sections(False)
+
+        return self.UA.design * fUA - self.calc_UA(sections)
 
     def UA_cecchinato_func(self):
         r"""
